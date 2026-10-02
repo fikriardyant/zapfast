@@ -292,6 +292,11 @@ pub fn lines(chat_name: &str, is_group: bool, sender: &str, summary: &str) -> (S
 }
 
 #[cfg(target_os = "linux")]
+fn desktop_entry() -> String {
+    std::env::var("FLATPAK_ID").unwrap_or_else(|_| "zapfast".to_string())
+}
+
+#[cfg(target_os = "linux")]
 #[expect(clippy::too_many_arguments)]
 fn deliver(
     title: &str,
@@ -313,6 +318,8 @@ fn deliver(
         .body(body)
         .icon("zapfast")
         .action("default", "Open");
+    notification.hint(notify_rust::Hint::DesktopEntry(desktop_entry()));
+    notification.hint(notify_rust::Hint::Category("im.received".to_string()));
     if !system_sound {
         notification.hint(notify_rust::Hint::SuppressSound(true));
     }
@@ -345,7 +352,11 @@ fn deliver(
                         }
                     }
                     _ = handle.wait_for_action_async(|action| {
-                        if matches!(action, notify_rust::NotificationResponse::Default) {
+                        if matches!(
+                            action,
+                            notify_rust::NotificationResponse::Default
+                                | notify_rust::NotificationResponse::Action(_)
+                        ) {
                             opened.lock().unwrap_or_else(|p| p.into_inner()).push(target);
                             wake();
                         }
@@ -579,5 +590,11 @@ mod tests {
             lines("Ada Lovelace", false, "Ada Lovelace", "Photo"),
             ("Ada Lovelace".to_owned(), "Photo".to_owned())
         );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_notification_defaults_to_zapfast_desktop_entry() {
+        assert_eq!(desktop_entry(), "zapfast");
     }
 }
