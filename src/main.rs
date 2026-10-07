@@ -444,6 +444,8 @@ fn native_options(
         .with_fullsize_content_view(true)
         .with_titlebar_shown(false)
         .with_title_shown(false);
+    #[cfg(target_os = "linux")]
+    let viewport = viewport.with_decorations(false);
     eframe::NativeOptions {
         viewport,
         persistence_path: demo_persistence,

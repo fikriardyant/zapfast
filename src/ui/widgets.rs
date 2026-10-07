@@ -1120,6 +1120,209 @@ pub fn dotted_chip(
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// macOS-style window controls (Minimize, Maximize/Restore, Close).
+pub fn traffic_lights(ui: &mut egui::Ui) -> egui::Response {
+    let is_fullscreen = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
+    if is_fullscreen {
+        return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
+    }
+    let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+    let is_focused = ui.input(|i| i.viewport().focused.unwrap_or(true));
+
+    const RADIUS: f32 = 6.0;
+    const DIAMETER: f32 = 12.0;
+    const GAP: f32 = 8.0;
+    const TOTAL_WIDTH: f32 = 3.0 * DIAMETER + 2.0 * GAP;
+    const HEIGHT: f32 = 14.0;
+
+    ui.allocate_ui_with_layout(
+        egui::vec2(TOTAL_WIDTH, HEIGHT),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(GAP, 0.0);
+
+            // 1. Minimize (Yellow) - Leftmost
+            let (min_rect, min_resp) =
+                ui.allocate_exact_size(egui::vec2(DIAMETER, DIAMETER), egui::Sense::click());
+            let min_resp = min_resp.on_hover_text("Minimize");
+
+            // 2. Maximize (Green) - Center
+            let (max_rect, max_resp) =
+                ui.allocate_exact_size(egui::vec2(DIAMETER, DIAMETER), egui::Sense::click());
+            let max_resp =
+                max_resp.on_hover_text(if is_maximized { "Restore" } else { "Maximize" });
+
+            // 3. Close (Red) - Rightmost
+            let (close_rect, close_resp) =
+                ui.allocate_exact_size(egui::vec2(DIAMETER, DIAMETER), egui::Sense::click());
+            let close_resp = close_resp.on_hover_text("Close");
+
+            let group_hovered = min_resp.hovered() || max_resp.hovered() || close_resp.hovered();
+
+            if min_resp.clicked() {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
+            if max_resp.clicked() {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+            }
+            if close_resp.clicked() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+
+            let painter = ui.painter();
+            let active = is_focused || group_hovered;
+
+            let (min_fill, min_stroke) = if !active {
+                (
+                    egui::Color32::from_rgb(209, 209, 214),
+                    egui::Stroke::new(0.5, egui::Color32::from_rgb(180, 180, 185)),
+                )
+            } else if min_resp.is_pointer_button_down_on() {
+                (
+                    egui::Color32::from_rgb(214, 152, 29),
+                    egui::Stroke::new(0.75, egui::Color32::from_rgb(185, 130, 20)),
+                )
+            } else {
+                (
+                    egui::Color32::from_rgb(254, 188, 46),
+                    egui::Stroke::new(0.75, egui::Color32::from_rgb(222, 161, 35)),
+                )
+            };
+
+            let (max_fill, max_stroke) = if !active {
+                (
+                    egui::Color32::from_rgb(209, 209, 214),
+                    egui::Stroke::new(0.5, egui::Color32::from_rgb(180, 180, 185)),
+                )
+            } else if max_resp.is_pointer_button_down_on() {
+                (
+                    egui::Color32::from_rgb(29, 160, 49),
+                    egui::Stroke::new(0.75, egui::Color32::from_rgb(20, 135, 38)),
+                )
+            } else {
+                (
+                    egui::Color32::from_rgb(40, 200, 64),
+                    egui::Stroke::new(0.75, egui::Color32::from_rgb(26, 171, 41)),
+                )
+            };
+
+            let (close_fill, close_stroke) = if !active {
+                (
+                    egui::Color32::from_rgb(209, 209, 214),
+                    egui::Stroke::new(0.5, egui::Color32::from_rgb(180, 180, 185)),
+                )
+            } else if close_resp.is_pointer_button_down_on() {
+                (
+                    egui::Color32::from_rgb(209, 64, 58),
+                    egui::Stroke::new(0.75, egui::Color32::from_rgb(180, 50, 45)),
+                )
+            } else {
+                (
+                    egui::Color32::from_rgb(255, 95, 87),
+                    egui::Stroke::new(0.75, egui::Color32::from_rgb(224, 68, 62)),
+                )
+            };
+
+            let min_center = min_rect.center();
+            let max_center = max_rect.center();
+            let close_center = close_rect.center();
+
+            painter.circle(min_center, RADIUS, min_fill, min_stroke);
+            painter.circle(max_center, RADIUS, max_fill, max_stroke);
+            painter.circle(close_center, RADIUS, close_fill, close_stroke);
+
+            if group_hovered {
+                // Minimize glyph: "-"
+                let min_glyph_stroke = egui::Stroke::new(1.2, egui::Color32::from_rgb(153, 87, 0));
+                const M: f32 = 3.0;
+                painter.line_segment(
+                    [
+                        min_center + egui::vec2(-M, 0.0),
+                        min_center + egui::vec2(M, 0.0),
+                    ],
+                    min_glyph_stroke,
+                );
+
+                // Maximize glyph: diagonal arrows or restore
+                let max_glyph_stroke = egui::Stroke::new(1.1, egui::Color32::from_rgb(0, 101, 0));
+                if is_maximized {
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(-2.5, -2.5),
+                            max_center + egui::vec2(2.5, 2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(-2.5, 2.5),
+                            max_center + egui::vec2(2.5, -2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                } else {
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(-2.5, 2.5),
+                            max_center + egui::vec2(2.5, -2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(0.5, -2.5),
+                            max_center + egui::vec2(2.5, -2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(2.5, -0.5),
+                            max_center + egui::vec2(2.5, -2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(-0.5, 2.5),
+                            max_center + egui::vec2(-2.5, 2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            max_center + egui::vec2(-2.5, 0.5),
+                            max_center + egui::vec2(-2.5, 2.5),
+                        ],
+                        max_glyph_stroke,
+                    );
+                }
+
+                // Close glyph: "x"
+                let glyph_stroke = egui::Stroke::new(1.1, egui::Color32::from_rgb(77, 0, 0));
+                const D: f32 = 2.5;
+                painter.line_segment(
+                    [
+                        close_center + egui::vec2(-D, -D),
+                        close_center + egui::vec2(D, D),
+                    ],
+                    glyph_stroke,
+                );
+                painter.line_segment(
+                    [
+                        close_center + egui::vec2(-D, D),
+                        close_center + egui::vec2(D, -D),
+                    ],
+                    glyph_stroke,
+                );
+            }
+        },
+    )
+    .response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1362,5 +1565,16 @@ mod tests {
         assert!(off_outline > 0.0, "the off track is outlined");
         assert_eq!(on_outline, 0.0, "the on track is filled, not outlined");
         assert!(on_knob > off_knob, "the knob grows when on");
+    }
+
+    #[test]
+    fn traffic_lights_layout_and_allocate() {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let resp = traffic_lights(ui);
+            assert!(resp.rect.width() > 50.0);
+            assert!(resp.rect.height() >= 12.0);
+        });
+        output.textures_delta.clear();
     }
 }

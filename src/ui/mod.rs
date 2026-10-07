@@ -94,6 +94,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     drop_target(app, ctx);
     toasts(app, ctx);
     focus_ring(app, ctx);
+    #[cfg(target_os = "linux")]
+    window_edge_resize(ctx);
 }
 
 fn central_background(app: &App) -> egui::Color32 {
@@ -472,29 +474,55 @@ fn toasts(app: &mut App, ctx: &egui::Context) {
     app.actions.extend(actions);
 }
 
-/// Draggable space for the macOS traffic-light title bar.
+/// Draggable space for the macOS traffic-light title bar or Linux top strip.
 fn titlebar_strip(app: &App, ui: &mut egui::Ui) {
-    let linked = app.is_linked() && !app.app_lock.is_locked();
-    if linked {
-        return;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let linked = app.is_linked() && !app.app_lock.is_locked();
+        if linked {
+            return;
+        }
+        let inset = theme::titlebar_inset(ui.ctx());
+        if inset == 0.0 {
+            return;
+        }
+        let fill = if linked {
+            app.palette.panel
+        } else {
+            app.palette.window
+        };
+        egui::Panel::top("titlebar")
+            .exact_size(inset)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(fill))
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                titlebar_drag(ui, rect);
+            });
     }
-    let inset = theme::titlebar_inset(ui.ctx());
-    if inset == 0.0 {
-        return;
+
+    #[cfg(target_os = "linux")]
+    {
+        if ui.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+            return;
+        }
+        const STRIP_HEIGHT: f32 = 24.0;
+        let fill = app.palette.panel;
+        egui::Panel::top("titlebar")
+            .exact_size(STRIP_HEIGHT)
+            .show_separator_line(false)
+            .frame(Frame::new().fill(fill))
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                let mut drag = rect;
+                drag.max.x -= 80.0;
+                titlebar_drag(ui, drag);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(10.0);
+                    widgets::traffic_lights(ui);
+                });
+            });
     }
-    let fill = if linked {
-        app.palette.panel
-    } else {
-        app.palette.window
-    };
-    egui::Panel::top("titlebar")
-        .exact_size(inset)
-        .show_separator_line(false)
-        .frame(Frame::new().fill(fill))
-        .show(ui, |ui| {
-            let rect = ui.max_rect();
-            titlebar_drag(ui, rect);
-        });
 }
 
 /// Makes `rect` drag the window.
@@ -507,6 +535,63 @@ pub fn titlebar_drag(ui: &mut egui::Ui, rect: egui::Rect) {
     // AppKit requires StartDrag during the original mouse-down event.
     if response.is_pointer_button_down_on() && ui.input(|input| input.pointer.primary_pressed()) {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if response.double_clicked() {
+        let maximized = ui.input(|input| input.viewport().maximized.unwrap_or(false));
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+    }
+}
+
+/// Allows interactive window resizing by dragging outer edges on Linux.
+#[cfg(target_os = "linux")]
+fn window_edge_resize(ctx: &egui::Context) {
+    let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+    let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+    if maximized || fullscreen {
+        return;
+    }
+    let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) else {
+        return;
+    };
+    let Some(screen) = ctx.input(|i| i.raw.screen_rect) else {
+        return;
+    };
+    const BORDER: f32 = 6.0;
+
+    let near_left = pos.x >= screen.left() && pos.x <= screen.left() + BORDER;
+    let near_right = pos.x <= screen.right() && pos.x >= screen.right() - BORDER;
+    let near_top = pos.y >= screen.top() && pos.y <= screen.top() + BORDER;
+    let near_bottom = pos.y <= screen.bottom() && pos.y >= screen.bottom() - BORDER;
+
+    let direction = match (near_left, near_right, near_top, near_bottom) {
+        (true, _, true, _) => Some(egui::viewport::ResizeDirection::NorthWest),
+        (_, true, true, _) => Some(egui::viewport::ResizeDirection::NorthEast),
+        (true, _, _, true) => Some(egui::viewport::ResizeDirection::SouthWest),
+        (_, true, _, true) => Some(egui::viewport::ResizeDirection::SouthEast),
+        (true, false, false, false) => Some(egui::viewport::ResizeDirection::West),
+        (false, true, false, false) => Some(egui::viewport::ResizeDirection::East),
+        (false, false, true, false) => Some(egui::viewport::ResizeDirection::North),
+        (false, false, false, true) => Some(egui::viewport::ResizeDirection::South),
+        _ => None,
+    };
+
+    if let Some(direction) = direction {
+        ctx.set_cursor_icon(match direction {
+            egui::viewport::ResizeDirection::North | egui::viewport::ResizeDirection::South => {
+                egui::CursorIcon::ResizeVertical
+            }
+            egui::viewport::ResizeDirection::East | egui::viewport::ResizeDirection::West => {
+                egui::CursorIcon::ResizeHorizontal
+            }
+            egui::viewport::ResizeDirection::NorthWest
+            | egui::viewport::ResizeDirection::SouthEast => egui::CursorIcon::ResizeNwSe,
+            egui::viewport::ResizeDirection::NorthEast
+            | egui::viewport::ResizeDirection::SouthWest => egui::CursorIcon::ResizeNeSw,
+        });
+        if ctx.input(|i| i.pointer.primary_pressed()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+        }
     }
 }
 
